@@ -41,7 +41,7 @@ function buildEmailHTML(fields) {
             <!-- Header -->
             <tr>
               <td style="background:#111827;padding:24px 32px;">
-                <h1 style="margin:0;color:#ffffff;font-size:20px;">📬 New Form Submission</h1>
+                <h1 style="margin:0;color:#ffffff;font-size:20px;">📬 New Incoming Rezzzzz</h1>
                 <p style="margin:4px 0 0;color:#9ca3af;font-size:13px;">
                   Received on ${new Date().toLocaleString("en-US", { dateStyle: "full", timeStyle: "short" })}
                 </p>
@@ -96,7 +96,7 @@ app.post("/formBackend", async (req, res) => {
 
     try {
       await resend.emails.send({
-        from: "Form Bot <onboarding@resend.dev>",
+        from: "Incoming Bot @ Anonymoxbaba <onboarding@resend.dev>",
         to: process.env.NOTIFY_EMAIL,
         subject: buildSubject(fields),
         html: buildEmailHTML(fields),
