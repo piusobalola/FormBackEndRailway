@@ -5,6 +5,7 @@ require("dotenv").config();
 
 const app = express();
 app.use(express.json());
+app.use(express.urlencoded({ extended: true })); // support HTML form posts too
 app.use(cors());
 
 // ─── In-Memory Store ──────────────────────────────────────────────────────────
@@ -14,57 +15,37 @@ const submissions = [];
 const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST || "smtp.gmail.com",
   port: process.env.SMTP_PORT || 587,
-  secure: false, // true for port 465
+  secure: false,
   auth: {
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASS,
   },
 });
 
-// ─── Validation Helper ────────────────────────────────────────────────────────
-function validateFormData({ name, email, message }) {
-  const errors = [];
-
-  if (!name || name.trim().length < 2)
-    errors.push("Name must be at least 2 characters.");
-
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  if (!email || !emailRegex.test(email))
-    errors.push("A valid email address is required.");
-
-  if (!message || message.trim().length < 10)
-    errors.push("Message must be at least 10 characters.");
-
-  return errors;
-}
-
-// ─── POST /formBackend ────────────────────────────────────────────────────────
+// ─── POST /formBackend — accepts ANY fields ───────────────────────────────────
 app.post("/formBackend", async (req, res) => {
-  const { name, email, message } = req.body;
+  const fields = req.body;
 
-  // 1. Validate
-  const errors = validateFormData({ name, email, message });
-  if (errors.length > 0) {
-    return res.status(400).json({ success: false, errors });
+  // Reject empty submissions
+  if (!fields || Object.keys(fields).length === 0) {
+    return res.status(400).json({ success: false, error: "No form data received." });
   }
 
   try {
-    // 2. Save to in-memory store
-    const submission = { id: Date.now(), name, email, message, createdAt: new Date() };
+    // Save all fields to in-memory store
+    const submission = { id: Date.now(), ...fields, createdAt: new Date() };
     submissions.push(submission);
 
-    // 3. Send email notification
+    // Build email rows dynamically from whatever fields were sent
+    const rows = Object.entries(fields)
+      .map(([key, value]) => `<p><strong>${key}:</strong> ${value}</p>`)
+      .join("");
+
     await transporter.sendMail({
       from: `"Form Bot" <${process.env.SMTP_USER}>`,
       to: process.env.NOTIFY_EMAIL || process.env.SMTP_USER,
-      subject: `New Form Submission from ${name}`,
-      html: `
-        <h2>New Submission</h2>
-        <p><strong>Name:</strong> ${name}</p>
-        <p><strong>Email:</strong> ${email}</p>
-        <p><strong>Message:</strong> ${message}</p>
-        <p><em>Submitted at ${new Date().toLocaleString()}</em></p>
-      `,
+      subject: "New Form Submission",
+      html: `<h2>New Submission</h2>${rows}<p><em>Submitted at ${new Date().toLocaleString()}</em></p>`,
     });
 
     return res.status(201).json({
@@ -78,7 +59,7 @@ app.post("/formBackend", async (req, res) => {
   }
 });
 
-// ─── GET /formBackend (fetch all submissions) ─────────────────────────────────
+// ─── GET /formBackend — fetch all submissions ─────────────────────────────────
 app.get("/formBackend", (req, res) => {
   res.json({ success: true, data: [...submissions].reverse() });
 });
