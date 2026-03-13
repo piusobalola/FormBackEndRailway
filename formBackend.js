@@ -13,6 +13,75 @@ const resend = new Resend(process.env.RESEND_API_KEY);
 // ─── In-Memory Store ──────────────────────────────────────────────────────────
 const submissions = [];
 
+// ─── Email Template ───────────────────────────────────────────────────────────
+function buildEmailHTML(fields) {
+  const rows = Object.entries(fields)
+    .map(
+      ([key, value]) => `
+      <tr>
+        <td style="padding:10px 16px;background:#f9fafb;border-bottom:1px solid #e5e7eb;font-weight:600;color:#374151;width:35%;text-transform:capitalize;">
+          ${key.replace(/([A-Z])/g, " $1").trim()}
+        </td>
+        <td style="padding:10px 16px;border-bottom:1px solid #e5e7eb;color:#111827;word-break:break-word;">
+          ${value || "<em style='color:#9ca3af'>—</em>"}
+        </td>
+      </tr>`
+    )
+    .join("");
+
+  return `
+  <!DOCTYPE html>
+  <html>
+  <body style="margin:0;padding:0;background:#f3f4f6;font-family:Arial,sans-serif;">
+    <table width="100%" cellpadding="0" cellspacing="0" style="padding:40px 20px;">
+      <tr>
+        <td align="center">
+          <table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,0.08);">
+
+            <!-- Header -->
+            <tr>
+              <td style="background:#111827;padding:24px 32px;">
+                <h1 style="margin:0;color:#ffffff;font-size:20px;">📬 New Form Submission</h1>
+                <p style="margin:4px 0 0;color:#9ca3af;font-size:13px;">
+                  Received on ${new Date().toLocaleString("en-US", { dateStyle: "full", timeStyle: "short" })}
+                </p>
+              </td>
+            </tr>
+
+            <!-- Fields Table -->
+            <tr>
+              <td style="padding:24px 32px;">
+                <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e5e7eb;border-radius:6px;overflow:hidden;font-size:14px;">
+                  ${rows}
+                </table>
+              </td>
+            </tr>
+
+            <!-- Footer -->
+            <tr>
+              <td style="background:#f9fafb;padding:16px 32px;border-top:1px solid #e5e7eb;">
+                <p style="margin:0;font-size:12px;color:#9ca3af;text-align:center;">
+                  This email was sent automatically by your form backend.
+                </p>
+              </td>
+            </tr>
+
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+  </html>`;
+}
+
+function buildSubject(fields) {
+  // Use "name" or "fullName" field if present, otherwise fallback
+  const name = fields.name || fields.fullName || fields.username || null;
+  return name
+    ? `New Submission from ${name}`
+    : `New Form Submission — ${new Date().toLocaleDateString()}`;
+}
+
 // ─── POST /formBackend — accepts ANY fields ───────────────────────────────────
 app.post("/formBackend", async (req, res) => {
   const fields = req.body;
@@ -22,22 +91,15 @@ app.post("/formBackend", async (req, res) => {
   }
 
   try {
-    // 1. Save to in-memory store
     const submission = { id: Date.now(), ...fields, createdAt: new Date() };
     submissions.push(submission);
 
-    // 2. Build email rows dynamically from any submitted fields
-    const rows = Object.entries(fields)
-      .map(([key, value]) => `<p><strong>${key}:</strong> ${value}</p>`)
-      .join("");
-
-    // 3. Send email via Resend (HTTPS — works on Railway free tier)
     try {
       await resend.emails.send({
-        from: "Form Bot <onboarding@resend.dev>", // use your own domain once verified
+        from: "Form Bot <onboarding@resend.dev>",
         to: process.env.NOTIFY_EMAIL,
-        subject: "New Form Submission",
-        html: `<h2>New Submission</h2>${rows}<p><em>Submitted at ${new Date().toLocaleString()}</em></p>`,
+        subject: buildSubject(fields),
+        html: buildEmailHTML(fields),
       });
     } catch (emailErr) {
       console.error("❌ Email error:", emailErr.message);
