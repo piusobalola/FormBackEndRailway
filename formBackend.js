@@ -1,6 +1,6 @@
 const express = require("express");
-const nodemailer = require("nodemailer");
 const cors = require("cors");
+const { Resend } = require("resend");
 require("dotenv").config();
 
 const app = express();
@@ -8,19 +8,10 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cors());
 
+const resend = new Resend(process.env.RESEND_API_KEY);
+
 // ─── In-Memory Store ──────────────────────────────────────────────────────────
 const submissions = [];
-
-// ─── Nodemailer Transporter ───────────────────────────────────────────────────
-const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST || "smtp.gmail.com",
-  port: Number(process.env.SMTP_PORT) || 587,
-  secure: false,
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS,
-  },
-});
 
 // ─── POST /formBackend — accepts ANY fields ───────────────────────────────────
 app.post("/formBackend", async (req, res) => {
@@ -31,26 +22,25 @@ app.post("/formBackend", async (req, res) => {
   }
 
   try {
-    // 1. Save to in-memory store (always succeeds)
+    // 1. Save to in-memory store
     const submission = { id: Date.now(), ...fields, createdAt: new Date() };
     submissions.push(submission);
 
-    // 2. Build email rows dynamically
+    // 2. Build email rows dynamically from any submitted fields
     const rows = Object.entries(fields)
       .map(([key, value]) => `<p><strong>${key}:</strong> ${value}</p>`)
       .join("");
 
-    // 3. Send email — log exact error if it fails
+    // 3. Send email via Resend (HTTPS — works on Railway free tier)
     try {
-      await transporter.sendMail({
-        from: `"Form Bot" <${process.env.SMTP_USER}>`,
-        to: process.env.NOTIFY_EMAIL || process.env.SMTP_USER,
+      await resend.emails.send({
+        from: "Form Bot <onboarding@resend.dev>", // use your own domain once verified
+        to: process.env.NOTIFY_EMAIL,
         subject: "New Form Submission",
         html: `<h2>New Submission</h2>${rows}<p><em>Submitted at ${new Date().toLocaleString()}</em></p>`,
       });
     } catch (emailErr) {
-      // Submission is saved — return success but warn about email
-      console.error("❌ Email error:", emailErr.message, emailErr.response || "");
+      console.error("❌ Email error:", emailErr.message);
       return res.status(201).json({
         success: true,
         message: "Form saved but email notification failed.",
@@ -66,12 +56,8 @@ app.post("/formBackend", async (req, res) => {
     });
 
   } catch (err) {
-    console.error("❌ Submission error:", err.message, err.stack);
-    return res.status(500).json({
-      success: false,
-      error: "Server error.",
-      detail: err.message, // visible in response for easier debugging
-    });
+    console.error("❌ Submission error:", err.message);
+    return res.status(500).json({ success: false, error: "Server error.", detail: err.message });
   }
 });
 
